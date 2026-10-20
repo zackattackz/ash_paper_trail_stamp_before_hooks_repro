@@ -8,7 +8,7 @@ replaced. `get_and_lock_for_update()` doesn't change that, though it does
 in the default `:version_resource` mode.
 
 - ash 3.36.1, ash_postgres 2.15.1, ash_paper_trail 0.8.1, PostgreSQL 18
-- The same results on ash `main` (3b9ad2d). ash_paper_trail's `main` is 0.8.1.
+- The same results on ash `main` (e4fb803). ash_paper_trail's `main` is 0.8.1.
 - Elixir 1.20.4, Erlang/OTP 29 (`.tool-versions`)
 - `Repro.Blog.Post`: temporal, `mode :temporal_inline`.
 - `Repro.Blog.Page`: the same resource, not temporal, in the default
