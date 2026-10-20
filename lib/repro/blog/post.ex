@@ -1,5 +1,5 @@
 defmodule Repro.Blog.Post do
-  # A temporal resource in `:temporal_inline` mode.
+  # A temporal resource in `:temporal_inline` mode, with `:previous_values`.
   use Ash.Resource,
     domain: Repro.Blog,
     data_layer: AshPostgres.DataLayer,
@@ -29,12 +29,6 @@ defmodule Repro.Blog.Post do
 
   actions do
     defaults [:read, create: [:title], update: [:title]]
-
-    update :retitle do
-      require_atomic? false
-      argument :title, :string, allow_nil?: false
-      change Repro.Blog.SetTitle
-    end
 
     update :retitle_locked do
       require_atomic? false

@@ -26,12 +26,6 @@ defmodule Repro.Blog.Page do
     # outside `:temporal_inline`.
     defaults [:read, create: [:title]]
 
-    update :retitle do
-      require_atomic? false
-      argument :title, :string, allow_nil?: false
-      change Repro.Blog.SetTitle
-    end
-
     update :retitle_locked do
       require_atomic? false
       argument :title, :string, allow_nil?: false

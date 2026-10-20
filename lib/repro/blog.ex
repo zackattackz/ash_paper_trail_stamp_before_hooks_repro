@@ -4,6 +4,8 @@ defmodule Repro.Blog do
   resources do
     resource Repro.Blog.Post
     resource Repro.Blog.Post.Version
+    resource Repro.Blog.DiffPost
+    resource Repro.Blog.DiffPost.Version
     resource Repro.Blog.Page
     resource Repro.Blog.Page.Version
   end
