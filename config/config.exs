@@ -8,7 +8,7 @@ config :repro, Repro.Repo,
   url:
     System.get_env(
       "DATABASE_URL",
-      "postgres://postgres:postgres@localhost:54321/ash_paper_trail_stale_repro"
+      "postgres://postgres:postgres@localhost:54321/ash_paper_trail_stamp_repro"
     ),
   pool: Ecto.Adapters.SQL.Sandbox
 
