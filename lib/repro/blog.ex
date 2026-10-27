@@ -1,7 +1,8 @@
 defmodule Repro.Blog do
-  use Ash.Domain, otp_app: :repro
+  use Ash.Domain, otp_app: :repro, extensions: [AshJsonApi.Domain]
 
   resources do
+    resource Repro.Blog.Author
     resource Repro.Blog.Post
     resource Repro.Blog.Post.Version
     resource Repro.Blog.DiffPost

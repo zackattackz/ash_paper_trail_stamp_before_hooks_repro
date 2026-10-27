@@ -14,6 +14,7 @@ defmodule Repro.Blog.Page do
   paper_trail do
     change_tracking_mode :previous_values
     store_action_name? true
+    metadata :reason, :string
   end
 
   attributes do
@@ -28,9 +29,8 @@ defmodule Repro.Blog.Page do
 
     update :retitle_locked do
       require_atomic? false
-      argument :title, :string, allow_nil?: false
+      accept [:title]
       change get_and_lock_for_update()
-      change Repro.Blog.SetTitle
     end
   end
 end

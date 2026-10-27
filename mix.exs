@@ -22,9 +22,10 @@ defmodule Repro.MixProject do
 
   defp deps do
     [
-      {:ash, "== 3.36.1"},
-      {:ash_postgres, "== 2.15.1"},
-      {:ash_paper_trail, "== 0.8.1"}
+      {:ash, "== 3.37.2"},
+      {:ash_postgres, "== 2.15.2"},
+      {:ash_paper_trail, "== 0.8.1"},
+      {:ash_json_api, "== 1.8.0"}
     ]
   end
 end

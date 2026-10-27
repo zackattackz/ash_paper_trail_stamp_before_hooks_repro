@@ -6,7 +6,4 @@ defmodule Repro.Repo do
 
   @impl true
   def min_pg_version, do: %Version{major: 18, minor: 0, patch: 0}
-
-  @impl true
-  def prefer_transaction?, do: false
 end
