@@ -1,9 +1,9 @@
 defmodule Repro.TemporalInlineStampTest do
   @moduledoc """
-  In `:temporal_inline` mode, a non-atomic write is stamped while its changeset
-  is built. Whatever changes the write after that is missed by the stamp.
+  In `:temporal_inline` mode, a non-atomic write's version columns can describe a
+  different write than the one made: the stamp is computed before hooks run.
 
-  Each `describe` is one case from the issue. The last two are controls.
+  Each `describe` is one case from the issue. Tests named `control:` pass today.
   """
   use ExUnit.Case, async: false
   require Ash.Query

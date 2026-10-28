@@ -1,28 +1,37 @@
 # AshPaperTrail `:temporal_inline`: the stamp misses what changes a write after its changeset is built
 
-Minimal reproduction for an AshPaperTrail bug. On a temporal resource with
-`mode :temporal_inline`, a non-atomic write is stamped (actor, action,
-`changes`, metadata) while its changeset is built. Whatever changes the write
-after that is missed:
+Minimal reproduction for an AshPaperTrail bug.
 
-1. **An attribute a `before_action` hook sets**, as Ash's `increment` does
-   when the update isn't atomic.
-2. **A record a `before_action` hook re-reads**, as `get_and_lock_for_update()`
-   does. `:previous_values` and `:full_diff` take the previous values from the
-   record the caller passed in, which may be stale.
-3. **The attribute of a managed `belongs_to` relationship.** Ash sets it when
-   the action runs.
-4. **A `before_action` hook added to a built changeset**, as in the
-   `Ash.Changeset.before_action/3` docs.
-5. **Context set on a built changeset**, such as `paper_trail_metadata`.
+In `:temporal_inline` mode every period row is a version, and the version
+columns on it are its stamp: `version_action_type`, `version_action_name`,
+the actor's id, `changes`, and any metadata. For a non-atomic write, that
+stamp can describe a different write than the one made: the stamp is computed
+while the changeset is built, and whatever changes the write after that isn't
+seen. The post's own attributes are always written correctly. It's the version
+columns on the same row that are wrong.
 
-When one of these is the write's only change, the write isn't stamped at all,
-and the new version keeps the previous version's stamp. Otherwise the stamp
-misses the change, or has stale or wrong values. In every case the write
-itself is right. Only the version's stamp is wrong.
+All cases are non-atomic writes. Atomic writes aren't affected.
 
-In the default `:version_resource` mode, the version is built in an
-`after_action` hook, after all of this, so none of it happens there.
+1. **An attribute set by a `before_action` hook.** Run a non-atomic
+   `increment_views` (`change increment(:views)`) on a fresh post. The row gets
+   `views: 1`, but its version columns say the create wrote it, with an empty
+   `changes`.
+2. **A record re-read by a `before_action` hook.** Read post "A", someone else
+   sets it to "B", then update the stale record to "C" through an action with
+   `get_and_lock_for_update()`. The row becomes "C", but `changes` says the
+   title was "A" before, not "B".
+3. **A managed `belongs_to` relationship.** Move a post to another author
+   through `manage_relationship`. The row gets the new author, but keeps the
+   create's stamp; with another change in the same write, `changes` lacks
+   `author_id`. AshJsonApi's relationship routes take this path with no user
+   code.
+4. **A `before_action` hook added to a built changeset.** The hook's change is
+   written, but the row keeps the create's stamp.
+5. **Context set on a built changeset.** `paper_trail_metadata` set after
+   `for_update` is dropped: the metadata column is `nil`.
+
+In the default `:version_resource` mode none of this happens: the version is
+built after the action.
 
 - ash 3.37.2, ash_postgres 2.15.2, ash_paper_trail 0.8.1, ash_json_api 1.8.0,
   PostgreSQL 18 (the latest releases). The same results on ash `main` (096ff3c) and
@@ -81,52 +90,39 @@ mix ecto.drop   # or stop the docker container above (--rm discards it)
 ## What the tests do
 
 `test/temporal_inline_stamp_test.exs` has one `describe` per case above, and
-controls. `test/json_api_relationship_route_test.exs` sends a real
+control tests. `test/json_api_relationship_route_test.exs` sends a real
 `PATCH /posts/:id/relationships/author` through an AshJsonApi router. Of the
-15 tests, the 11 that show the bug fail and the 4 controls pass.
+15 tests, the 11 that show the bug fail and the 4 controls pass. Each failing
+assertion has a `# Fails:` comment above it with what is stored.
 
-**1. An attribute a hook sets.** Create "A", then run `increment_views`, whose
-only change is `views` from 0 to 1, set in a `before_action` hook:
+Each test creates a post titled "A" (with author `a` where an author is
+involved), performs one more write, then reads the newest version of the post
+back and checks the fields named in the last two columns:
 
-| | Stored on the new version | Expected |
-|---|---|---|
-| `version_action_type` | `:create` | `:update` |
-| `version_action_name` | `:create` | `:increment_views` |
-| `changes` | `%{}` | `%{"views" => 0}` |
-
-**2. A record a hook re-reads.** Create "A" and read it. Someone else then
-updates it to "B". The earlier read is then updated to "C" through
-`retitle_locked`, which re-reads and locks the record first. That update
-replaces "B", so its version should store "B" as the title's previous value:
-
-| Resource | Update to "C" | Stored | Expected |
+| Case | The write | What the new version stores | What it should store |
 |---|---|---|---|
-| `Post` (`:temporal_inline`, `:previous_values`) | `retitle_locked` | `%{"title" => "A"}` | `%{"title" => "B"}` |
-| `DiffPost` (`:temporal_inline`, `:full_diff`) | `retitle_locked` | `%{"title" => %{"from" => "A", "to" => "C"}}` | `"from" => "B"` |
-| `Post` (`:temporal_inline`, `:previous_values`) | `update` (atomic), control | `%{"title" => "B"}` | same |
-| `Page` (`:version_resource`, `:previous_values`) | `retitle_locked`, control | `%{"title" => "B"}` | same |
+| 1 | `increment_views`: its hook sets `views` from 0 to 1, nothing else changes | `version_action_type: :create`, `version_action_name: :create`, `changes: %{}` | `version_action_type: :update`, `version_action_name: :increment_views`, `changes: %{"views" => 0}` |
+| 2 | `retitle_locked` to "C" on a stale read of "A", after someone else set "B" (`Post`, `:previous_values`) | `changes: %{"title" => "A"}` | `changes: %{"title" => "B"}` |
+| 2 | the same on `DiffPost` (`:full_diff`) | `changes: %{"title" => %{"from" => "A", "to" => "C"}}` | `changes: %{"title" => %{"from" => "B", "to" => "C"}}` |
+| 3 | `move` to author `b`, nothing else changes | `version_action_type: :create`, `version_action_name: :create`, `changes: %{}` | `version_action_type: :update`, `version_action_name: :move`, `changes: %{"author_id" => <a's id>}` |
+| 3 | `move` to author `b` and set the title to "B" | `changes: %{"title" => "A"}` | `changes: %{"title" => "A", "author_id" => <a's id>}` |
+| 3 | `manage_relationship(:author, ...)` on a new changeset, then `for_update(:update_any)` | `version_action_type: :create`, `version_action_name: :create`, `changes: %{}` | `version_action_type: :update`, `version_action_name: :update_any`, `changes: %{"author_id" => <a's id>}` |
+| 3 | `move` in a bulk update (`strategy: :stream`) | `version_action_type: :create`, `version_action_name: :create`, `changes: %{}` | `version_action_type: :update`, `version_action_name: :move`, `changes: %{"author_id" => <a's id>}` |
+| 3 | `PATCH /posts/:id/relationships/author` through an AshJsonApi router | `version_action_type: :create`, `version_action_name: :create`, `changes: %{}` | `version_action_type: :update`, `version_action_name: :set_author`, `changes: %{"author_id" => <a's id>}` |
+| 3 | `create_with_author` on `DiffPost` | `changes["author_id"]: %{"to" => nil}` | `changes["author_id"]: %{"to" => <a's id>}` |
+| 4 | `for_update(:update_any)`, then a `before_action` that sets the title to "late", nothing else changes | `version_action_type: :create`, `version_action_name: :create`, `changes: %{}` | `version_action_type: :update`, `version_action_name: :update_any`, `changes: %{"title" => "A"}` |
+| 5 | `for_update(:retitle_locked)` to "B", then `set_context(%{paper_trail_metadata: %{reason: "late"}})` | `reason: nil` | `reason: "late"` |
 
-**3. A managed `belongs_to`.** Create with author "a", then move to author
-"b" through `manage_relationship`:
+In every row the row itself is right: `views` is 1, the title is "C" or
+"late", `author_id` is `b`'s. The other four tests are controls, and pass:
 
-| Write | Stored | Expected |
+| Control | The write | What the new version stores |
 |---|---|---|
-| `move`, the only change | the create's stamp, `changes: %{}` | `:update`, `:move`, `%{"author_id" => a}` |
-| `move` with a title change | `changes: %{"title" => "A"}` | `%{"title" => "A", "author_id" => a}` |
-| managed on a built changeset, then `for_update(:update_any)` (as AshJsonApi's relationship routes do) | the create's stamp | `:update`, `:update_any`, `%{"author_id" => a}` |
-| `move` in a bulk update (`strategy: :stream`) | the create's stamp | `:update`, `:move`, `%{"author_id" => a}` |
-| `PATCH /posts/:id/relationships/author` through AshJsonApi (no user hook; the route manages the relationship on the changeset it builds, then runs `set_author` with no params) | the create's stamp | `:update`, `:set_author`, `%{"author_id" => a}` |
-| `create_with_author` on `DiffPost` | `"author_id" => %{"to" => nil}` | `%{"to" => a}` |
+| atomic update | the stale read of "A" updated to "C" through the atomic `update` action | `changes: %{"title" => "B"}` |
+| `:version_resource` mode | the same through `retitle_locked` on `Page` | `changes: %{"title" => "B"}` |
+| `:version_resource` mode | `for_update` then `set_context(%{paper_trail_metadata: ...})` on `Page` | `reason: "late"` |
+| non-atomic, input only | `retitle_locked` to "B" on a fresh record | `version_action_type: :update`, `version_action_name: :retitle_locked`, `changes: %{"title" => "A"}` |
 
-**4. A hook added to a built changeset.** `for_update(:update_any)`, then
-`before_action` that sets the title to "late", as the write's only change.
-The row has the new title but the create's stamp. Expected `:update`,
-`:update_any`, `changes: %{"title" => "A"}`.
-
-**5. Context set on a built changeset.** `for_update(:retitle_locked)`, then
-`set_context(%{paper_trail_metadata: %{reason: "late"}})`. `Post` stores
-`reason: nil`; `Page` (control) stores `"late"`.
-
-**Control: a non-atomic write whose change comes from the action input.**
-`retitle_locked` on a fresh record is stamped correctly. The problem is what
-changes the write after the changeset is built, not non-atomic writes as such.
+The last control shows that a non-atomic write is stamped correctly when
+nothing changes it after the changeset is built. The problem is the late
+changes, not non-atomic writes as such.
